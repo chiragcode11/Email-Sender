@@ -83,6 +83,11 @@ export const campaignAPI = {
         return response.data
     },
 
+    retry: async (id: number) => {
+        const response = await api.post(`/campaigns/${id}/retry`)
+        return response.data
+    },
+
     getRecipients: async (id: number) => {
         const response = await api.get(`/campaigns/${id}/recipients`)
         return response.data

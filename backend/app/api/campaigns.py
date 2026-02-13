@@ -273,11 +273,58 @@ async def send_campaign(
             detail="Campaign not found"
         )
     
-    # Trigger sending using FastAPI BackgroundTasks (no Redis required)
     from app.tasks.email_tasks import send_campaign_emails_async
     background_tasks.add_task(send_campaign_emails_async, campaign_id)
     
     return {"message": "Campaign sending started"}
+
+
+@router.post("/{campaign_id}/retry", status_code=status.HTTP_200_OK)
+async def retry_campaign(
+    campaign_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retry a failed or cancelled campaign.
+    This will resume sending to recipients who haven't received the email yet.
+    """
+    # Verify campaign ownership
+    result = await db.execute(
+        select(Campaign).where(
+            Campaign.id == campaign_id,
+            Campaign.user_id == current_user.id
+        )
+    )
+    campaign = result.scalar_one_or_none()
+    
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found"
+        )
+    
+    # Check if campaign can be retried
+    from app.models.campaign import CampaignStatus
+    if campaign.status not in [CampaignStatus.FAILED, CampaignStatus.CANCELLED, CampaignStatus.COMPLETED]:
+        # We allow retrying COMPLETED if there were failures (failed_count > 0)
+        # But generally we just want to reset status to SENDING if it's not already sending
+        if campaign.status == CampaignStatus.SENDING:
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Campaign is already sending"
+            )
+    
+    # Update status to sending
+    campaign.status = CampaignStatus.SENDING
+    await db.commit()
+    
+    # Trigger sending task
+    from app.tasks.email_tasks import send_campaign_emails_async
+    background_tasks.add_task(send_campaign_emails_async, campaign_id)
+    
+    return {"message": "Campaign retry started"}
 
 
 @router.get("/{campaign_id}/stats", response_model=CampaignStats)

@@ -512,9 +512,12 @@ export default function CreateCampaign() {
                                     onUploadComplete={handleUploadComplete}
                                 />
                             </CardContent>
-                            <CardFooter className="flex justify-center">
-                                <Button variant="link" onClick={() => navigate(`/campaigns/${campaignId}`)}>
-                                    {isEditMode ? 'Finished Editing' : 'Skip for now'}
+                            <CardFooter className="flex justify-between">
+                                <Button variant="outline" onClick={() => setStep(3)}>
+                                    <ChevronLeft className="mr-2 h-4 w-4" /> Back
+                                </Button>
+                                <Button onClick={() => navigate(`/campaigns/${campaignId}`)}>
+                                    Finish & Review <ChevronRight className="ml-2 h-4 w-4" />
                                 </Button>
                             </CardFooter>
                         </Card>

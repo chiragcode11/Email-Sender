@@ -10,6 +10,9 @@ from urllib.parse import quote
 from app.config import settings
 
 
+import ssl
+import certifi
+
 class EmailService:
     """Service for sending emails via SMTP."""
     
@@ -18,6 +21,26 @@ class EmailService:
         self.smtp_port = settings.SMTP_PORT
         self.from_email = settings.GMAIL_EMAIL
         self.password = settings.GMAIL_APP_PASSWORD
+        
+        if settings.DEBUG:
+            # In DEBUG mode, attempt to create an unverified context directly
+            # This helps avoid "unable to get local issuer certificate" on systems without proper certs
+            try:
+                # Try using certifi for CA certs even in debug mode, just to have a base
+                self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+                self.ssl_context.check_hostname = False
+                self.ssl_context.verify_mode = ssl.CERT_NONE
+            except Exception:
+                 # Fallback to completely unverified context
+                try:
+                    self.ssl_context = ssl._create_unverified_context()
+                except AttributeError:
+                    self.ssl_context = ssl.create_default_context()
+                    self.ssl_context.check_hostname = False
+                    self.ssl_context.verify_mode = ssl.CERT_NONE
+        else:
+            # Create standard SSL context using certifi
+            self.ssl_context = ssl.create_default_context(cafile=certifi.where())
     
     async def send_email(
         self,
@@ -70,8 +93,13 @@ class EmailService:
             msg.attach(part2)
             
             # Send email
-            async with aiosmtplib.SMTP(hostname=self.smtp_host, port=self.smtp_port) as smtp:
-                await smtp.starttls()
+            async with aiosmtplib.SMTP(
+                hostname=self.smtp_host, 
+                port=self.smtp_port,
+                tls_context=self.ssl_context,
+                start_tls=True
+            ) as smtp:
+                # TLS started automatically
                 await smtp.login(self.from_email, self.password)
                 response = await smtp.send_message(msg)
             
@@ -169,8 +197,13 @@ class EmailService:
     async def test_connection(self) -> bool:
         """Test SMTP connection."""
         try:
-            async with aiosmtplib.SMTP(hostname=self.smtp_host, port=self.smtp_port) as smtp:
-                await smtp.starttls()
+            async with aiosmtplib.SMTP(
+                hostname=self.smtp_host, 
+                port=self.smtp_port,
+                tls_context=self.ssl_context,
+                start_tls=True
+            ) as smtp:
+                # TLS started automatically
                 await smtp.login(self.from_email, self.password)
             return True
         except Exception:

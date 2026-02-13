@@ -49,125 +49,126 @@ async def send_campaign_emails_async(campaign_id: int):
             await db.commit()
             print(f"DEBUG: Campaign status updated to SENDING")
         
-        # Get recipients
-        result = await db.execute(
-            select(Recipient).where(
-                Recipient.campaign_id == campaign_id,
-                Recipient.is_sent == False
+            # Get recipients
+            result = await db.execute(
+                select(Recipient).where(
+                    Recipient.campaign_id == campaign_id,
+                    Recipient.is_sent == False
+                )
             )
-        )
-        recipients = result.scalars().all()
-        
-        # Check warmup limits
-        if campaign.use_warmup:
-            warmup_check = await warmup_service.check_can_send(
-                campaign.user_id,
-                db,
-                len(recipients)
-            )
+            recipients = result.scalars().all()
             
-            if not warmup_check["can_send"]:
-                # Limit recipients to remaining quota
-                recipients = recipients[:warmup_check["remaining"]]
-        
-        
-        # Send emails
-        sent_count = 0
-        failed_count = 0
-        
-        for recipient in recipients:
-            # Check for cancellation
-            # We need to refresh campaign status from DB to see if it was cancelled
-            await db.refresh(campaign)
-            if campaign.status == CampaignStatus.CANCELLED:
-                print(f"DEBUG: Campaign {campaign_id} was cancelled by user. Stopping sending loop.")
-                break
+            # Check warmup limits
+            if campaign.use_warmup:
+                warmup_check = await warmup_service.check_can_send(
+                    campaign.user_id,
+                    db,
+                    len(recipients)
+                )
+                
+                if not warmup_check["can_send"]:
+                    # Limit recipients to remaining quota
+                    recipients = recipients[:warmup_check["remaining"]]
+            
+            
+            # Send emails
+            sent_count = 0
+            failed_count = 0
+            
+            for recipient in recipients:
+                # Check for cancellation
+                # We need to refresh campaign status from DB to see if it was cancelled
+                await db.refresh(campaign)
+                if campaign.status == CampaignStatus.CANCELLED:
+                    print(f"DEBUG: Campaign {campaign_id} was cancelled by user. Stopping sending loop.")
+                    break
 
-            # Generate tracking ID
-            tracking_id = str(uuid.uuid4())
-            
-            # Personalize content
-            html_content = email_service.personalize_content(
-                campaign.html_content,
-                recipient.personalization_data or {}
-            )
-            
-            print(f"DEBUG: Sending to recipient {recipient.email}...")
-            # Send email
-            try:
-                result = await email_service.send_email(
+                # Generate tracking ID
+                tracking_id = str(uuid.uuid4())
+                
+                # Personalize content
+                html_content = email_service.personalize_content(
+                    campaign.html_content,
+                    recipient.personalization_data or {}
+                )
+                
+                print(f"DEBUG: Sending to recipient {recipient.email}...")
+                # Send email
+                try:
+                    result = await email_service.send_email(
+                        to_email=recipient.email,
+                        subject=campaign.subject,
+                        html_content=html_content,
+                        plain_text=campaign.plain_text_content,
+                        from_name=campaign.from_name,
+                        reply_to=campaign.reply_to,
+                        tracking_id=tracking_id,
+                        track_opens=campaign.track_opens,
+                        track_clicks=campaign.track_clicks
+                    )
+                    print(f"DEBUG: Send result for {recipient.email}: {result}")
+                except Exception as e:
+                    print(f"DEBUG: Exception sending to {recipient.email}: {e}")
+                    result = {"success": False, "error": str(e)}
+                
+                # Create email log
+                email_log = EmailLog(
+                    campaign_id=campaign_id,
+                    recipient_id=recipient.id,
                     to_email=recipient.email,
                     subject=campaign.subject,
-                    html_content=html_content,
-                    plain_text=campaign.plain_text_content,
-                    from_name=campaign.from_name,
-                    reply_to=campaign.reply_to,
+                    from_email=campaign.from_email,
                     tracking_id=tracking_id,
-                    track_opens=campaign.track_opens,
-                    track_clicks=campaign.track_clicks
+                    message_id=result.get("message_id"),
+                    status=EmailStatus.SENT if result["success"] else EmailStatus.FAILED,
+                    error_message=result.get("error"),
+                    sent_at=datetime.utcnow() if result["success"] else None
                 )
-                print(f"DEBUG: Send result for {recipient.email}: {result}")
-            except Exception as e:
-                print(f"DEBUG: Exception sending to {recipient.email}: {e}")
-                result = {"success": False, "error": str(e)}
+                db.add(email_log)
+                
+                # Update recipient
+                recipient.is_sent = result["success"]
+                recipient.is_failed = not result["success"]
+                recipient.error_message = result.get("error")
+                recipient.sent_at = datetime.utcnow() if result["success"] else None
+                
+                if result["success"]:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+                
+                await db.commit()
             
-            # Create email log
-            email_log = EmailLog(
-                campaign_id=campaign_id,
-                recipient_id=recipient.id,
-                to_email=recipient.email,
-                subject=campaign.subject,
-                from_email=campaign.from_email,
-                tracking_id=tracking_id,
-                message_id=result.get("message_id"),
-                status=EmailStatus.SENT if result["success"] else EmailStatus.FAILED,
-                error_message=result.get("error"),
-                sent_at=datetime.utcnow() if result["success"] else None
+            print(f"DEBUG: Finished sending loop. Sent: {sent_count}, Failed: {failed_count}")
+
+            # Update campaign
+            campaign.sent_count += sent_count
+            campaign.failed_count += failed_count
+            
+            # Check if campaign is complete
+            result = await db.execute(
+                select(Recipient).where(
+                    Recipient.campaign_id == campaign_id,
+                    Recipient.is_sent == False,
+                    Recipient.is_failed == False
+                )
             )
-            db.add(email_log)
+            remaining = result.scalars().all()
             
-            # Update recipient
-            recipient.is_sent = result["success"]
-            recipient.is_failed = not result["success"]
-            recipient.error_message = result.get("error")
-            recipient.sent_at = datetime.utcnow() if result["success"] else None
-            
-            if result["success"]:
-                sent_count += 1
-            else:
-                failed_count += 1
+            if not remaining:
+                campaign.status = CampaignStatus.COMPLETED
+                campaign.completed_at = datetime.utcnow()
+                print(f"DEBUG: All recipients processed. Campaign marked as COMPLETED.")
             
             await db.commit()
-        
-        print(f"DEBUG: Finished sending loop. Sent: {sent_count}, Failed: {failed_count}")
-
-        # Update campaign
-        campaign.sent_count += sent_count
-        campaign.failed_count += failed_count
-        
-        # Check if campaign is complete
-        result = await db.execute(
-            select(Recipient).where(
-                Recipient.campaign_id == campaign_id,
-                Recipient.is_sent == False
-            )
-        )
-        remaining = result.scalars().all()
-        
-        if not remaining:
-            campaign.status = CampaignStatus.COMPLETED
-            campaign.completed_at = datetime.utcnow()
-            print(f"DEBUG: All recipients processed. Campaign marked as COMPLETED.")
-        
-        await db.commit()
-        
-        # Update warmup metrics
-        if campaign.use_warmup:
-            await warmup_service.record_sent_emails(
-                campaign.user_id,
-                sent_count,
-                db
-            )
+            
+            # Update warmup metrics
+            if campaign.use_warmup:
+                await warmup_service.record_sent_emails(
+                    campaign.user_id,
+                    sent_count,
+                    db
+                )
     except Exception as e:
         print(f"DEBUG: CRITICAL ERROR in send_campaign_emails_async: {e}")
         import traceback

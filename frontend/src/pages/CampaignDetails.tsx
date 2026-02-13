@@ -73,6 +73,18 @@ export default function CampaignDetails() {
         }
     })
 
+    const retryMutation = useMutation({
+        mutationFn: campaignAPI.retry,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['campaign', id] })
+            toast.success('Campaign retry started')
+        },
+        onError: (error) => {
+            console.error('Failed to retry campaign:', error)
+            toast.error('Failed to retry campaign')
+        }
+    })
+
     const handleDelete = () => {
         if (id) deleteMutation.mutate(Number(id))
     }
@@ -211,6 +223,31 @@ export default function CampaignDetails() {
                                         <AlertDialogCancel>Keep Sending</AlertDialogCancel>
                                         <AlertDialogAction onClick={() => cancelMutation.mutate(Number(id))} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                                             Yes, Cancel
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
+
+                        {(campaign.status === 'failed' || campaign.status === 'cancelled' || (campaign.status === 'completed' && campaign.failed_count > 0)) && (
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="default">
+                                        <Send className="mr-2 h-4 w-4" /> Retry Campaign
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Retry Campaign?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will resume sending to recipients who haven't received the email yet.
+                                            Already sent emails will not be duplicated.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={() => retryMutation.mutate(Number(id))}>
+                                            Start Retrying
                                         </AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>
