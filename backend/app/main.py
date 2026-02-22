@@ -13,6 +13,29 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
     await init_db()
+    
+    # Auto-pause any campaigns stuck in SENDING state due to a crash/restart
+    from app.database import AsyncSessionLocal
+    from app.models.campaign import Campaign, CampaignStatus
+    from sqlalchemy import select, update
+    
+    try:
+        async with AsyncSessionLocal() as db:
+            print("INFO: Checking for stuck campaigns...")
+            result = await db.execute(
+                select(Campaign).where(Campaign.status == CampaignStatus.SENDING)
+            )
+            stuck_campaigns = result.scalars().all()
+            
+            if stuck_campaigns:
+                print(f"INFO: Found {len(stuck_campaigns)} campaigns stuck in SENDING state. Pausing them...")
+                for campaign in stuck_campaigns:
+                    campaign.status = CampaignStatus.PAUSED
+                await db.commit()
+                print("INFO: Stuck campaigns successfully paused.")
+    except Exception as e:
+        print(f"ERROR: Failed to handle stuck campaigns during startup: {e}")
+        
     yield
     # Shutdown
     pass

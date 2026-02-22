@@ -307,7 +307,7 @@ async def retry_campaign(
     
     # Check if campaign can be retried
     from app.models.campaign import CampaignStatus
-    if campaign.status not in [CampaignStatus.FAILED, CampaignStatus.CANCELLED, CampaignStatus.COMPLETED]:
+    if campaign.status not in [CampaignStatus.FAILED, CampaignStatus.CANCELLED, CampaignStatus.COMPLETED, CampaignStatus.PAUSED]:
         # We allow retrying COMPLETED if there were failures (failed_count > 0)
         # But generally we just want to reset status to SENDING if it's not already sending
         if campaign.status == CampaignStatus.SENDING:

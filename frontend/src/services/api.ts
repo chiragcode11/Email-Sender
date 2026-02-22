@@ -19,6 +19,22 @@ api.interceptors.request.use((config) => {
     return config
 })
 
+// Handle unauthorized responses (e.g. expired token)
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response && error.response.status === 401) {
+            // Only redirect if we are not already on the login page
+            if (window.location.pathname !== '/login') {
+                localStorage.removeItem('token')
+                localStorage.removeItem('auth-storage') // clear zustand store
+                window.location.href = '/login'
+            }
+        }
+        return Promise.reject(error)
+    }
+)
+
 // Auth API
 export const authAPI = {
     login: async (username: string, password: string) => {

@@ -126,6 +126,7 @@ export default function CampaignDetails() {
             case 'scheduled': return 'outline'
             case 'failed': return 'destructive'
             case 'cancelled': return 'destructive'
+            case 'paused': return 'outline'
             default: return 'secondary'
         }
     }
@@ -149,7 +150,7 @@ export default function CampaignDetails() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                        {['draft', 'scheduled', 'cancelled', 'completed', 'failed'].includes(campaign.status) && (
+                        {['draft', 'scheduled', 'cancelled', 'completed', 'failed', 'paused'].includes(campaign.status) && (
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button variant="destructive" size="sm">
@@ -229,16 +230,16 @@ export default function CampaignDetails() {
                             </AlertDialog>
                         )}
 
-                        {(campaign.status === 'failed' || campaign.status === 'cancelled' || (campaign.status === 'completed' && campaign.failed_count > 0)) && (
+                        {(campaign.status === 'failed' || campaign.status === 'cancelled' || campaign.status === 'paused' || (campaign.status === 'completed' && campaign.failed_count > 0)) && (
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                     <Button variant="default">
-                                        <Send className="mr-2 h-4 w-4" /> Retry Campaign
+                                        <Send className="mr-2 h-4 w-4" /> {campaign.status === 'paused' ? 'Resume Campaign' : 'Retry Campaign'}
                                     </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                     <AlertDialogHeader>
-                                        <AlertDialogTitle>Retry Campaign?</AlertDialogTitle>
+                                        <AlertDialogTitle>{campaign.status === 'paused' ? 'Resume Campaign?' : 'Retry Campaign?'}</AlertDialogTitle>
                                         <AlertDialogDescription>
                                             This will resume sending to recipients who haven't received the email yet.
                                             Already sent emails will not be duplicated.
@@ -247,7 +248,7 @@ export default function CampaignDetails() {
                                     <AlertDialogFooter>
                                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                                         <AlertDialogAction onClick={() => retryMutation.mutate(Number(id))}>
-                                            Start Retrying
+                                            {campaign.status === 'paused' ? 'Start Resuming' : 'Start Retrying'}
                                         </AlertDialogAction>
                                     </AlertDialogFooter>
                                 </AlertDialogContent>

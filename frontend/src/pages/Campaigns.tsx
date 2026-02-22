@@ -71,6 +71,7 @@ export default function Campaigns() {
             case 'sending': return 'secondary'
             case 'scheduled': return 'outline'
             case 'failed': return 'destructive'
+            case 'paused': return 'outline'
             default: return 'secondary'
         }
     }
