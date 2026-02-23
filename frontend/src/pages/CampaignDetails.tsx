@@ -79,9 +79,10 @@ export default function CampaignDetails() {
             queryClient.invalidateQueries({ queryKey: ['campaign', id] })
             toast.success('Campaign retry started')
         },
-        onError: (error) => {
+        onError: (error: any) => {
             console.error('Failed to retry campaign:', error)
-            toast.error('Failed to retry campaign')
+            const message = error.response?.data?.detail || 'Failed to retry campaign'
+            toast.error(message)
         }
     })
 

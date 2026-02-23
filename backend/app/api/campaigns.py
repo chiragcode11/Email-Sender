@@ -315,6 +315,16 @@ async def retry_campaign(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Campaign is already sending"
             )
+            
+    # Check warmup quota before allowing resume
+    if campaign.use_warmup:
+        from app.services.warmup_service import warmup_service
+        warmup_check = await warmup_service.check_can_send(current_user.id, db, count=1)
+        if not warmup_check["can_send"] and warmup_check["remaining"] <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Daily warmup limit reached. Please wait until tomorrow to resume this campaign."
+            )
     
     # Update status to sending
     campaign.status = CampaignStatus.SENDING

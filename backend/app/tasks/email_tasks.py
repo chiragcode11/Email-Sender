@@ -59,6 +59,7 @@ async def send_campaign_emails_async(campaign_id: int):
             recipients = result.scalars().all()
             
             # Check warmup limits
+            hit_warmup_limit = False
             if campaign.use_warmup:
                 warmup_check = await warmup_service.check_can_send(
                     campaign.user_id,
@@ -69,6 +70,7 @@ async def send_campaign_emails_async(campaign_id: int):
                 if not warmup_check["can_send"]:
                     # Limit recipients to remaining quota
                     recipients = recipients[:warmup_check["remaining"]]
+                    hit_warmup_limit = True
             
             
             # Send emails
@@ -153,12 +155,16 @@ async def send_campaign_emails_async(campaign_id: int):
                     Recipient.is_failed == False
                 )
             )
-            remaining = result.scalars().all()
+            remaining_recipients = result.scalars().all()
             
-            if not remaining:
+            if not remaining_recipients:
                 campaign.status = CampaignStatus.COMPLETED
                 campaign.completed_at = datetime.utcnow()
                 print(f"DEBUG: All recipients processed. Campaign marked as COMPLETED.")
+            elif hit_warmup_limit:
+                # If there are remaining recipients but we hit the warmup limit, pause it
+                campaign.status = CampaignStatus.PAUSED
+                print(f"DEBUG: Hit warmup limit. Campaign {campaign_id} PAUSED with {len(remaining_recipients)} remaining.")
             
             await db.commit()
             
